@@ -9,6 +9,10 @@ fn generic<T>(x: T) -> T {
     x
 }
 
+fn returns_u8() -> u8 {
+    10
+}
+
 fn main() {
     let a: u8 = 10;
     //~^ needless_type_cast
@@ -179,4 +183,67 @@ fn test_loop_with_generic() {
         break generic(1);
     };
     let _ = x as i32;
+}
+
+fn test_size_of_cast() {
+    use std::mem::size_of;
+    // Should lint: suggest casting the initializer
+    let size: usize = size_of::<u32>();
+    //~^ needless_type_cast
+    let _ = size as u64;
+    let _ = size as u64;
+}
+
+fn test_suffixed_literal_cast() {
+    // Should lint: suggest casting the initializer
+    let a: u8 = 10u8;
+    //~^ needless_type_cast
+    let _ = a as i32;
+    let _ = a as i32;
+}
+
+fn test_negative_literal() {
+    // Negative literal - should just change type, not add cast
+    let a: i8 = -10;
+    //~^ needless_type_cast
+    let _ = a as i32;
+    let _ = a as i32;
+}
+
+fn test_suffixed_negative_literal() {
+    // Suffixed negative - needs cast
+    let a: i8 = -10i8;
+    //~^ needless_type_cast
+    let _ = a as i32;
+    let _ = a as i32;
+}
+
+fn test_binary_op() {
+    // Binary op needs parens in cast
+    let a: u8 = 10 + 5;
+    //~^ needless_type_cast
+    let _ = a as i32;
+    let _ = a as i32;
+}
+
+fn test_fn_return_as_init() {
+    let a: u8 = returns_u8();
+    //~^ needless_type_cast
+    let _ = a as i32;
+    let _ = a as i32;
+}
+
+fn test_method_as_init() {
+    let a: u8 = 2u8.saturating_add(3);
+    //~^ needless_type_cast
+    let _ = a as i32;
+    let _ = a as i32;
+}
+
+fn test_const_as_init() {
+    const X: u8 = 10;
+    let a: u8 = X;
+    //~^ needless_type_cast
+    let _ = a as i32;
+    let _ = a as i32;
 }

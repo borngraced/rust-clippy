@@ -1,6 +1,8 @@
-use clippy_utils::diagnostics::span_lint_and_sugg;
+use clippy_utils::diagnostics::span_lint_and_then;
+use clippy_utils::sugg::Sugg;
 use clippy_utils::visitors::{Descend, for_each_expr, for_each_expr_without_closures};
 use core::ops::ControlFlow;
+use rustc_ast::ast::{LitFloatType, LitIntType, LitKind};
 use rustc_data_structures::fx::FxHashMap;
 use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
@@ -14,6 +16,7 @@ use super::NEEDLESS_TYPE_CAST;
 struct BindingInfo<'a> {
     source_ty: Ty<'a>,
     ty_span: Span,
+    init: Option<&'a Expr<'a>>,
 }
 
 struct UsageInfo<'a> {
@@ -73,6 +76,7 @@ fn collect_binding_from_let<'a>(
                 BindingInfo {
                     source_ty: ty,
                     ty_span: ty_hir.span,
+                    init: Some(let_expr.init),
                 },
             );
         }
@@ -103,6 +107,7 @@ fn collect_binding_from_local<'a>(
                 BindingInfo {
                     source_ty: ty,
                     ty_span: ty_hir.span,
+                    init: let_stmt.init,
                 },
             );
         }
@@ -229,6 +234,17 @@ fn is_cast_in_generic_context<'a>(cx: &LateContext<'a>, cast_expr: &Expr<'a>) ->
     }
 }
 
+fn is_unsuffixed_numeric_literal(expr: &Expr<'_>) -> bool {
+    match expr.kind {
+        ExprKind::Lit(lit) => matches!(
+            lit.node,
+            LitKind::Int(_, LitIntType::Unsuffixed) | LitKind::Float(_, LitFloatType::Unsuffixed)
+        ),
+        ExprKind::Unary(rustc_hir::UnOp::Neg, inner) => is_unsuffixed_numeric_literal(inner),
+        _ => false,
+    }
+}
+
 fn check_binding_usages<'a>(cx: &LateContext<'a>, body: &Body<'a>, hir_id: HirId, binding_info: &BindingInfo<'a>) {
     let mut usages = Vec::new();
 
@@ -269,7 +285,7 @@ fn check_binding_usages<'a>(cx: &LateContext<'a>, body: &Body<'a>, hir_id: HirId
         return;
     };
 
-    span_lint_and_sugg(
+    span_lint_and_then(
         cx,
         NEEDLESS_TYPE_CAST,
         binding_info.ty_span,
@@ -277,8 +293,28 @@ fn check_binding_usages<'a>(cx: &LateContext<'a>, body: &Body<'a>, hir_id: HirId
             "this binding is defined as `{}` but is always cast to `{}`",
             binding_info.source_ty, first_target
         ),
-        "consider defining it as",
-        first_target.to_string(),
-        Applicability::MaybeIncorrect,
+        |diag| {
+            if let Some(init) = binding_info
+                .init
+                .filter(|i| !is_unsuffixed_numeric_literal(i) && !i.span.from_expansion())
+            {
+                let sugg = Sugg::hir(cx, init, "..").as_ty(first_target);
+                diag.multipart_suggestion(
+                    format!("consider defining it as `{first_target}` and casting the initializer"),
+                    vec![
+                        (binding_info.ty_span, first_target.to_string()),
+                        (init.span, sugg.to_string()),
+                    ],
+                    Applicability::MachineApplicable,
+                );
+            } else {
+                diag.span_suggestion(
+                    binding_info.ty_span,
+                    "consider defining it as",
+                    first_target.to_string(),
+                    Applicability::MachineApplicable,
+                );
+            }
+        },
     );
 }
