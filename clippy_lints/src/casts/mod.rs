@@ -836,7 +836,7 @@ declare_clippy_lint! {
     /// ```
     #[clippy::version = "1.93.0"]
     pub NEEDLESS_TYPE_CAST,
-    nursery,
+    pedantic,
     "binding defined with one type but always cast to another"
 }
 
